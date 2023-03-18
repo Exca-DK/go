@@ -2733,6 +2733,21 @@ top:
 		asmcgocall(*cgo_yield, nil)
 	}
 
+	// checking for nonblocking netpoll 1/3 times should make it more fair for event intensive tasks instead as last resort after local and global queue.
+	if pp.schedtick%3 == 0 {
+		if netpollinited() && netpollWaiters.Load() > 0 && sched.lastpoll.Load() != 0 {
+			if list := netpoll(0); !list.empty() { // non-blocking
+				gp := list.pop()
+				injectglist(&list)
+				casgstatus(gp, _Gwaiting, _Grunnable)
+				if trace.enabled {
+					traceGoUnpark(gp, 0)
+				}
+				return gp, false, false
+			}
+		}
+	}
+
 	// local runq
 	if gp, inheritTime := runqget(pp); gp != nil {
 		return gp, inheritTime, false
